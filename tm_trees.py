@@ -102,8 +102,13 @@ class TMTree:
         self._subtrees = subtrees[:]
         self._parent_tree = None
         self._colour = (randint(0, 255), randint(0, 255), randint(0, 255))
-        if self._subtrees is None:
-            self.data_size = data_size
+        self.data_size = data_size
+        if name is None:
+            self._subtrees = []
+        if self.is_empty():
+            self.data_size = 0
+        elif len(self._subtrees) == 0:
+            self.data_size = os.path.getsize(self._name)
         else:
             for subtree in self._subtrees:
                 self.data_size += subtree.data_size
@@ -114,7 +119,6 @@ class TMTree:
             self._expanded = True
         else:
             self._expanded = False
-
         # TODO: (Task 1) Complete this initializer by doing two things:
         # 1. Initialize self._colour and self.data_size, according to the
         # docstring.
@@ -130,7 +134,26 @@ class TMTree:
         treemap algorithm to fill the area defined by pygame rectangle <rect>.
         """
         x, y, width, height = rect
-
+        if self.data_size is None:
+            self.rect = []
+        elif len(self._subtrees) == 0:
+            self.rect = rect
+        elif width > height:
+            x = 0
+            for subtree in self._subtrees:
+                subtree_data = subtree.data_size
+                rec_width = int(((subtree_data / self.data_size) * width))
+                subtree.rect = (x, 0, rec_width, height)
+                x += rec_width
+                subtree.update_rectangles(subtree.rect)
+        else:
+            y = 0
+            for subtree in self._subtrees:
+                subtree_data = subtree.data_size
+                rec_height = int(((self.data_size / subtree_data) * height))
+                subtree.rect = (0, y, width, rec_height)
+                y += rec_height
+                subtree.update_rectangles(subtree.rect)
         # TODO: (Task 2) Complete the body of this method.
         # Read the handout carefully to help get started identifying base cases,
         # then write the outline of a recursive step.
@@ -146,6 +169,15 @@ class TMTree:
         appropriate pygame rectangle to display for a leaf, and the colour
         to fill it with.
         """
+        if self.is_empty():
+            return []
+        elif len(self._subtrees) == 0:
+            return [self.rect]
+        else:
+            lst = []
+            for subtree in self._subtrees:
+                lst += subtree.get_rectangles()
+        return lst
         # TODO: (Task 2) Complete the body of this method.
 
     def get_tree_at_position(self, pos: Tuple[int, int]) -> Optional[TMTree]:
@@ -155,7 +187,22 @@ class TMTree:
 
         If <pos> is on the shared edge between two rectangles, return the
         tree represented by the rectangle that is closer to the origin.
+
+        ties should be broken by choosing the rectangle on the left for a
+        vertical boundary, or the rectangle above for a horizontal boundary.
         """
+        x1, y1, width1, height1 = self.rect
+        if pos[0] > x1 or pos[1] > y1:
+            return None
+        elif len(self._subtrees) == 0:
+            return self
+        else:
+            for subtree in self._subtrees:
+                temp_rect = subtree.rect
+                x, y, width, height = temp_rect
+                if (x, y) == pos:
+                    return subtree
+                return subtree.get_tree_at_position(pos)
         # TODO: (Task 3) Complete the body of this method
 
     def update_data_sizes(self) -> int:
@@ -164,12 +211,23 @@ class TMTree:
 
         If this tree is a leaf, return its size unchanged.
         """
+        if self._name is None:
+            return 0
+        elif len(self._subtrees) == 0:
+            return self.data_size
+        else:
+            x = 0
+            for subtree in self._subtrees:
+                x += subtree.update_data_sizes()
+        return x
         # TODO: (Task 4) Complete the body of this method.
 
     def move(self, destination: TMTree) -> None:
         """If this tree is a leaf, and <destination> is not a leaf, move this
         tree to be the last subtree of <destination>. Otherwise, do nothing.
         """
+        if len(self._subtrees) == 0 and len(destination._subtrees) > 0:
+            destination._subtrees.append(self)
         # TODO: (Task 4) Complete the body of this method.
 
     def change_size(self, factor: float) -> None:
@@ -180,8 +238,33 @@ class TMTree:
 
         Do nothing if this tree is not a leaf.
         """
+        if len(self._subtrees) == 0:
+            self.data_size += math.ceil(factor)
         # TODO: (Task 4) Complete the body of this method
 
+    def expand(self) -> None:
+        """Expands the Tree"""
+        if len(self._subtrees) == 0:
+            self._expanded = False
+        else:
+            self._expanded = True
+
+    def expand_all(self) -> None:
+        """Expands all of the tree"""
+        if len(self._subtrees) == 0:
+            self._expanded = False
+        else:
+            self._expanded = True
+            for subtree in self._subtrees:
+                subtree._expanded = True
+                subtree.expand_all()
+
+    def collapse_all(self):
+        self._expanded = False
+        if len(self._subtrees) != 0:
+            for subtree in self._subtrees:
+                subtree._expanded = False
+                subtree.collapse_all()
     # TODO: (Task 5) Write the methods expand, expand_all, collapse, and
     # TODO: collapse_all, and add the displayed-tree functionality to the
     # TODO: methods from Tasks 2 and 3
@@ -230,7 +313,7 @@ class FileSystemTree(TMTree):
     as reported by os.path.getsize.
     """
 
-    def __init__(self, name, subtrees, data_size, path: str) -> None:
+    def __init__(self, path: str) -> None:
         """Store the file tree structure contained in the given file or folder.
 
         Precondition: <path> is a valid path for this computer.
@@ -239,29 +322,21 @@ class FileSystemTree(TMTree):
         # Remember that you should recursively go through the file system
         # and create new FileSystemTree objects for each file and folder
         # encountered.
-        #
         # Also remember to make good use of the superclass constructor!
         # TODO: (Task 1) Implement the initializer
-        TMTree.__init__(self, name, subtrees, data_size)
-        if path is None:
-            self.path = None
+        if os.path.isdir(path):
+            self._subtrees = [FileSystemTree(os.path.join(path, x)) for x in
+                              os.listdir(path)]
+            TMTree.__init__(self, os.path.basename(path), self._subtrees)
         else:
-            files = os.listdir(path)
-            i = 1
-            for file in files:
-                FileSystemTree.__init__(self, os.path.basename(file), files[i:],
-                                        os.path.getsize(file), )
-                i += 1
-                # elif os.path.basename(path) == os.listdir(path):
-                # else:
-                #     files = os.listdir(path)
-                #     for file in files:
-
-                # os.path.isdir(path) returns bool if it is in directory
-                # os.listdir(path) stores all files in path
-                # os.path.join(file1,file2, x amount of files) joins files
-                # os.path.getsize(file) outputs size
-                # os.path.basename(path) outputs tail of path
+            self._subtrees = []
+            TMTree.__init__(self, os.path.basename(path), self._subtrees,
+                            os.path.getsize(path))
+        # os.path.isdir(path) returns bool if it is in directory
+        # os.listdir(path) stores all files in path
+        # os.path.join(file1,file2, x amount of files) joins files
+        # os.path.getsize(file) outputs size
+        # os.path.basename(path) outputs tail of path
 
     def get_separator(self) -> str:
         """Return the file separator for this OS.
@@ -279,9 +354,3 @@ class FileSystemTree(TMTree):
 
 if __name__ == '__main__':
     import python_ta
-
-    python_ta.check_all(config={
-        'allowed-import-modules': [
-            'python_ta', 'typing', 'math', 'random', 'os', '__future__'
-        ]
-    })
